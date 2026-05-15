@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Lego Print Studio Ultra - 5 Algos</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #1a1a1a; color: white; margin: 0; display: flex; flex-direction: column; height: 100vh; }
+        .toolbar { background: #2d2d2d; padding: 15px; display: flex; gap: 20px; align-items: center; border-bottom: 2px solid #ffcf00; }
+        .main-content { display: flex; flex: 1; overflow: hidden; }
+        .settings { width: 320px; background: #252525; padding: 20px; overflow-y: auto; border-right: 1px solid #444; }
+        .viewer { flex: 1; display: flex; justify-content: center; align-items: center; gap: 20px; background: #111; padding: 20px; }
+        canvas { background: #fff; box-shadow: 0 0 20px rgba(0,0,0,0.5); border: 1px solid #444; }
+        .canvas-label { text-align: center; margin-bottom: 10px; color: #ffcf00; font-weight: bold; font-size: 0.9em; }
+        .control-group { margin-bottom: 15px; }
+        label { display: flex; justify-content: space-between; font-size: 0.8em; margin-bottom: 5px; color: #bbb; }
+        span { color: #ffcf00; font-weight: bold; }
+        select, input[type="range"] { width: 100%; accent-color: #ffcf00; background: #333; color: white; border: 1px solid #444; padding: 8px; border-radius: 4px; }
+        .inventory-card { background: #333; padding: 8px; border-radius: 4px; margin-top: 5px; display: flex; justify-content: space-between; font-size: 0.85em; }
+    </style>
+</head>
+<body>
+
+<div class="toolbar">
+    <input type="file" id="upload" accept="image/*">
+    <div style="font-weight: bold;">LEGO PRINT <span style="color:#ffcf00">ULTRA</span></div>
+    <div style="margin-left: auto; display: flex; align-items: center; gap: 10px;">
+        <label style="margin:0">Algorithme :</label>
+        <select id="algoSelect">
+            <option value="threshold">1. Seuil Net (Géométrique)</option>
+            <option value="floyd">2. Floyd-Steinberg (Photo)</option>
+            <option value="bayer">3. Bayer Grid (Rétro/Ordre)</option>
+            <option value="random">4. Bruit Aléatoire (Granuleux)</option>
+            <option value="edges">5. Contours (Lignes)</option>
+        </select>
+    </div>
+</div>
+
+<div class="main-content">
+    <div class="settings">
+        <div class="control-group">
+            <label>Taille / Zoom <span id="v-scale">100%</span></label>
+            <input type="range" id="scale" min="10" max="300" value="100">
+        </div>
+        <div class="control-group">
+            <label>Luminosité <span id="v-bright">100%</span></label>
+            <input type="range" id="brightness" min="0" max="200" value="100">
+        </div>
+        <div class="control-group">
+            <label>Contraste <span id="v-contrast">100%</span></label>
+            <input type="range" id="contrast" min="0" max="300" value="100">
+        </div>
+        <div class="control-group">
+            <label>Flou (Lissage) <span id="v-blur">0px</span></label>
+            <input type="range" id="blur" min="0" max="10" value="0" step="0.5">
+        </div>
+        <div class="control-group" id="threshContainer">
+            <label>Seuil / Sensibilité <span id="v-threshold">128</span></label>
+            <input type="range" id="threshold" min="0" max="255" value="128">
+        </div>
+        <hr style="border:0; border-top:1px solid #444;">
+        <h3>Inventaire</h3>
+        <div id="stats"></div>
+    </div>
+
+    <div class="viewer">
+        <div>
+            <div class="canvas-label">APERÇU SOURCE</div>
+            <canvas id="preCanvas" width="400" height="400"></canvas>
+        </div>
+        <div>
+            <div class="canvas-label">PLAQUE LEGO 48x48</div>
+            <canvas id="legoCanvas" width="600" height="600"></canvas>
+        </div>
+    </div>
+</div>
+
+<script>
+const preCanvas = document.getElementById('preCanvas');
+const preCtx = preCanvas.getContext('2d');
+const legoCanvas = document.getElementById('legoCanvas');
+const legoCtx = legoCanvas.getContext('2d');
+const GRID_SIZE = 48;
+const CELL = legoCanvas.width / GRID_SIZE;
+
+let imgObj = null;
+
+// Écouteurs universels
+document.querySelectorAll('input, select').forEach(el => {
+    el.addEventListener('input', () => {
+        const valSpan = document.getElementById('v-' + el.id);
+        if(valSpan) valSpan.textContent = el.value + (el.id === 'blur' ? 'px' : (el.id === 'threshold' ? '' : '%'));
+        if(imgObj) process();
+    });
+});
+
+document.getElementById('upload').addEventListener('change', e => {
+    const reader = new FileReader();
+    reader.onload = ev => { imgObj = new Image(); imgObj.onload = process; imgObj.src = ev.target.result; };
+    reader.readAsDataURL(e.target.files[0]);
+});
+
+function process() {
+    // 1. Dessin source avec filtres
+    preCtx.clearRect(0, 0, preCanvas.width, preCanvas.height);
+    preCtx.filter = `brightness(${document.getElementById('brightness').value}%) contrast(${document.getElementById('contrast').value}%) blur(${document.getElementById('blur').value}px) grayscale(100%)`;
+    
+    const scale = document.getElementById('scale').value / 100;
+    const ratio = imgObj.width / imgObj.height;
+    let dw = ratio > 1 ? preCanvas.width * scale : (preCanvas.height * scale) * ratio;
+    let dh = ratio > 1 ? (preCanvas.width * scale) / ratio : preCanvas.height * scale;
+    preCtx.drawImage(imgObj, (preCanvas.width-dw)/2, (preCanvas.height-dh)/2, dw, dh);
+
+    // 2. Préparation data (48x48)
+    const off = document.createElement('canvas'); off.width = off.height = GRID_SIZE;
+    const oCtx = off.getContext('2d'); oCtx.drawImage(preCanvas, 0, 0, GRID_SIZE, GRID_SIZE);
+    const imgData = oCtx.getImageData(0, 0, GRID_SIZE, GRID_SIZE);
+    
+    const mode = document.getElementById('algoSelect').value;
+    const thresh = parseInt(document.getElementById('threshold').value);
+    let grid;
+
+    // 3. Dispatch vers l'algorithme choisi
+    switch(mode) {
+        case 'threshold': grid = algoThreshold(imgData.data, thresh); break;
+        case 'floyd':     grid = algoFloyd(imgData, thresh); break;
+        case 'bayer':     grid = algoBayer(imgData.data); break;
+        case 'random':    grid = algoRandom(imgData.data, thresh); break;
+        case 'edges':     grid = algoEdges(imgData.data, thresh); break;
+    }
+
+    renderLego(grid);
+}
+
+// --- CATALOGUE D'ALGORITHMES ---
+
+function algoThreshold(data, t) {
+    let g = Array.from({length:GRID_SIZE},()=>Array(GRID_SIZE).fill(0));
+    for(let i=0; i<data.length; i+=4) g[Math.floor((i/4)/GRID_SIZE)][(i/4)%GRID_SIZE] = data[i] < t ? 1 : 0;
+    return g;
+}
+
+function algoFloyd(imgData, t) {
+    let d = new Float32Array(imgData.data.length/4);
+    for(let i=0; i<imgData.data.length; i+=4) d[i/4] = imgData.data[i];
+    let g = Array.from({length:GRID_SIZE},()=>Array(GRID_SIZE).fill(0));
+    for(let y=0; y<GRID_SIZE; y++) {
+        for(let x=0; x<GRID_SIZE; x++) {
+            let oldP = d[y*GRID_SIZE+x];
+            let newP = oldP < t ? 0 : 255;
+            g[y][x] = newP === 0 ? 1 : 0;
+            let err = oldP - newP;
+            if(x<GRID_SIZE-1) d[y*GRID_SIZE+(x+1)] += err*7/16;
+            if(y<GRID_SIZE-1){
+                if(x>0) d[(y+1)*GRID_SIZE+(x-1)] += err*3/16;
+                d[(y+1)*GRID_SIZE+x] += err*5/16;
+                if(x<GRID_SIZE-1) d[(y+1)*GRID_SIZE+(x+1)] += err*1/16;
+            }
+        }
+    }
+    return g;
+}
+
+function algoBayer(data) {
+    const matrix = [ [0,8,2,10],[12,4,14,6],[3,11,1,9],[15,7,13,5] ];
+    let g = Array.from({length:GRID_SIZE},()=>Array(GRID_SIZE).fill(0));
+    for(let i=0; i<data.length; i+=4) {
+        let x = (i/4)%GRID_SIZE, y = Math.floor((i/4)/GRID_SIZE);
+        let val = data[i] / 16;
+        g[y][x] = val < matrix[y%4][x%4] ? 1 : 0;
+    }
+    return g;
+}
+
+function algoRandom(data, t) {
+    let g = Array.from({length:GRID_SIZE},()=>Array(GRID_SIZE).fill(0));
+    for(let i=0; i<data.length; i+=4) {
+        let rand = Math.random() * 255;
+        g[Math.floor((i/4)/GRID_SIZE)][(i/4)%GRID_SIZE] = data[i] < rand ? 1 : 0;
+    }
+    return g;
+}
+
+function algoEdges(data, t) {
+    let g = Array.from({length:GRID_SIZE},()=>Array(GRID_SIZE).fill(0));
+    for(let y=1; y<GRID_SIZE-1; y++) {
+        for(let x=1; x<GRID_SIZE-1; x++) {
+            let idx = (y*GRID_SIZE+x)*4;
+            let diff = Math.abs(data[idx] - data[idx+4]) + Math.abs(data[idx] - data[(y+1)*GRID_SIZE*4 + x*4]);
+            g[y][x] = diff > (t/2) ? 1 : 0;
+        }
+    }
+    return g;
+}
+
+// --- RENDU LEGO ---
+
+function renderLego(grid) {
+    legoCtx.clearRect(0,0,legoCanvas.width, legoCanvas.height);
+    let used = Array.from({length:GRID_SIZE},()=>Array(GRID_SIZE).fill(false));
+    let c = { h2:0, q1:0, r1:0, s1:0 };
+
+    for(let y=0; y<GRID_SIZE-1; y++) {
+        for(let x=0; x<GRID_SIZE-1; x++) {
+            if(!used[y][x] && !used[y+1][x] && !used[y][x+1] && !used[y+1][x+1]) {
+                const b = [grid[y][x], grid[y][x+1], grid[y+1][x], grid[y+1][x+1]];
+                if(b.reduce((a,b)=>a+b) === 3) {
+                    drawHollow2x2(x, y, b.indexOf(0));
+                    used[y][x]=used[y+1][x]=used[y][x+1]=used[y+1][x+1]=true;
+                    c.h2++;
+                }
+            }
+        }
+    }
+
+    for(let y=0; y<GRID_SIZE; y++) {
+        for(let x=0; x<GRID_SIZE; x++) {
+            if(grid[y][x] && !used[y][x]) {
+                const n = getNeighbors(grid,x,y);
+                if(n.count===0){ drawRound(x,y); c.r1++; }
+                else if(n.isCorner){ drawQuarter1x1(x,y,n.dir); c.q1++; }
+                else { drawSquare(x,y); c.s1++; }
+            }
+        }
+    }
+    document.getElementById('stats').innerHTML = `<div class="inventory-card"><span>Arche 2x2</span><b>${c.h2}</b></div><div class="inventory-card"><span>Quart 1x1</span><b>${c.q1}</b></div><div class="inventory-card"><span>Rond 1x1</span><b>${c.r1}</b></div><div class="inventory-card"><span>Carré 1x1</span><b>${c.s1}</b></div>`;
+}
+
+// Fonctions de dessin identiques aux précédentes...
+function drawHollow2x2(x,y,i){
+    legoCtx.save(); legoCtx.translate(x*CELL,y*CELL);
+    let cx=[CELL*2,0,CELL*2,0][i], cy=[CELL*2,CELL*2,0,0][i], s=[Math.PI,Math.PI*1.5,Math.PI*0.5,0][i];
+    legoCtx.lineWidth=CELL; legoCtx.strokeStyle="#222"; legoCtx.beginPath();
+    legoCtx.arc(cx,cy,CELL*1.5,s,s+Math.PI/2); legoCtx.stroke(); legoCtx.restore();
+}
+function drawQuarter1x1(x,y,d){
+    legoCtx.save(); legoCtx.translate(x*CELL,y*CELL); legoCtx.fillStyle="#222"; legoCtx.beginPath();
+    if(d=="BR"){legoCtx.moveTo(0,0);legoCtx.arc(0,0,CELL,0,Math.PI/2);}
+    else if(d=="BL"){legoCtx.moveTo(CELL,0);legoCtx.arc(CELL,0,CELL,Math.PI/2,Math.PI);}
+    else if(d=="TR"){legoCtx.moveTo(0,CELL);legoCtx.arc(0,CELL,CELL,Math.PI*1.5,0);}
+    else {legoCtx.moveTo(CELL,CELL);legoCtx.arc(CELL,CELL,CELL,Math.PI,Math.PI*1.5);}
+    legoCtx.fill(); legoCtx.restore();
+}
+function drawSquare(x,y){legoCtx.fillStyle="#222"; legoCtx.fillRect(x*CELL+0.5,y*CELL+0.5,CELL-1,CELL-1);}
+function drawRound(x,y){legoCtx.fillStyle="#222"; legoCtx.beginPath(); legoCtx.arc(x*CELL+CELL/2,y*CELL+CELL/2,CELL/2-2,0,Math.PI*2); legoCtx.fill();}
+function getNeighbors(g,x,y){
+    let t=y>0?g[y-1][x]:0, b=y<GRID_SIZE-1?g[y+1][x]:0, l=x>0?g[y][x-1]:0, r=x<GRID_SIZE-1?g[y][x+1]:0;
+    let d = (b&&r)?"BR":(b&&l)?"BL":(t&&r)?"TR":"TL";
+    return { count: t+b+l+r, isCorner: (t+b+l+r===2 && !((t&&b)||(l&&r))), dir: d };
+}
+</script>
+</body>
+</html>
