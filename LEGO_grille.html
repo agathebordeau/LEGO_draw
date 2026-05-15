@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LEGO DOTS Designer - Export Edition</title>
+    <style>
+        :root {
+            --bg: #0b0b0e;
+            --grid: #1a1a1e;
+            --plate: #252529;
+            --accent: #35a7ff;
+            --nav-bg: #151515;
+            --text-dim: #999;
+            --primary: #ffcf00;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: white;
+            font-family: 'Segoe UI', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+        }
+
+        /* --- GLOBAL HEADER (NAVIGATION) --- */
+        .global-header {
+            background: var(--nav-bg);
+            height: 45px;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            padding: 0 25px;
+            border-bottom: 1px solid #000;
+            gap: 30px;
+            box-sizing: border-box;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+        }
+
+        .nav-link {
+            color: var(--text-dim);
+            text-decoration: none;
+            font-size: 0.75em;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            transition: color 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .nav-link:hover { color: white; }
+        .nav-link.active { color: var(--primary); }
+        .nav-link.active::before {
+            content: "●";
+            font-size: 8px;
+        }
+
+        /* --- CONTENU --- */
+        .main-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+
+        /* --- PALETTE HORIZONTALE --- */
+        .palette {
+            background: #2a2a2e;
+            padding: 15px 25px;
+            border-radius: 50px;
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            border: 1px solid #333;
+            max-width: 95vw;
+            overflow-x: auto;
+        }
+
+        .source-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+            flex-shrink: 0;
+        }
+
+        .dot-source {
+            width: 34px;
+            height: 34px;
+            background: #555;
+            cursor: grab;
+            box-shadow: inset -2px -2px 0px rgba(0,0,0,0.2), 0 3px 6px rgba(0,0,0,0.4);
+            box-sizing: border-box;
+            position: relative;
+        }
+
+        .dot-source.arc-l {
+            background: rgba(255, 255, 255, 0.05) !important;
+            border-width: 12px !important;
+            width: 34px !important;
+            height: 34px !important;
+        }
+
+        .round { border-radius: 50%; }
+        .square { border-radius: 2px; }
+        .arc-f-tl { border-radius: 100% 0 0 0; }
+        .arc-f-tr { border-radius: 0 100% 0 0; }
+        .arc-f-br { border-radius: 0 0 100% 0; }
+        .arc-f-bl { border-radius: 0 0 0 100%; }
+
+        /* --- PIÈCES SUR LA GRILLE --- */
+        .placed-dot {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            z-index: 5;
+            pointer-events: none;
+            box-sizing: border-box;
+        }
+
+        .placed-dot.arc-l {
+            width: 68px;
+            height: 68px;
+            background: transparent !important;
+            border: 34px solid #555;
+            top: 0; left: 0;
+            transform-origin: top left;
+        }
+
+        .m-tl { border-radius: 100% 0 0 0; border-right: none !important; border-bottom: none !important; }
+        .m-tr { border-radius: 0 100% 0 0; border-left: none !important; border-bottom: none !important; }
+        .m-br { border-radius: 0 0 100% 0; border-left: none !important; border-top: none !important; }
+        .m-bl { border-radius: 0 0 0 100%; border-right: none !important; border-top: none !important; }
+
+        /* --- GRILLE --- */
+        .baseplate {
+            display: grid;
+            grid-template-columns: repeat(20, 34px);
+            grid-template-rows: repeat(12, 34px);
+            gap: 2px;
+            background-color: var(--plate);
+            padding: 12px;
+            border: 10px solid #111;
+            border-radius: 4px;
+        }
+
+        .cell {
+            width: 34px;
+            height: 34px;
+            background-color: var(--grid);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            cursor: pointer;
+        }
+
+        /* --- UI CONTROLS --- */
+        .controls {
+            margin-top: 25px;
+            display: flex;
+            gap: 15px;
+        }
+
+        button {
+            padding: 10px 20px;
+            background: #333;
+            color: white;
+            border: 1px solid #444;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        button:hover { background: #444; border-color: var(--accent); }
+        button.export-btn { background: var(--accent); border: none; font-weight: bold; }
+        button.export-btn:hover { background: #5db9ff; }
+
+        #export-modal {
+            display: none;
+            position: fixed;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: #1e1e22;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 0 100px rgba(0,0,0,0.8);
+            z-index: 100;
+            width: 80%;
+            max-width: 800px;
+        }
+
+        textarea {
+            width: 100%;
+            height: 300px;
+            background: #000;
+            color: #0f0;
+            font-family: monospace;
+            padding: 15px;
+            border: 1px solid #333;
+            margin: 15px 0;
+            resize: none;
+        }
+
+        .overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7);
+            z-index: 99;
+        }
+
+        .label { font-size: 8px; text-transform: uppercase; color: #777; }
+    </style>
+</head>
+<body>
+
+    <header class="global-header">
+        <a href="index.html" class="nav-link">Image Generator</a>
+        <a href="#" class="nav-link active">Texte Generator</a>
+    </header>
+
+    <div class="main-container">
+        <h2 style="font-weight: 300; letter-spacing: 3px; margin-top: 10px;">TEXTE GENERATOR <span>PRO</span></h2>
+
+        <div class="palette">
+            <div class="source-wrapper"><div class="dot-source square" draggable="true" data-shape="square"></div><span class="label">SQU</span></div>
+            <div class="source-wrapper"><div class="dot-source round" draggable="true" data-shape="round"></div><span class="label">RND</span></div>
+            <div style="width: 1px; height: 20px; background: #444; margin: 0 5px;"></div>
+            <div class="source-wrapper"><div class="dot-source arc-f-tl" draggable="true" data-shape="arc-f-tl"></div><span class="label">Q-TL</span></div>
+            <div class="source-wrapper"><div class="dot-source arc-f-tr" draggable="true" data-shape="arc-f-tr"></div><span class="label">Q-TR</span></div>
+            <div class="source-wrapper"><div class="dot-source arc-f-br" draggable="true" data-shape="arc-f-br"></div><span class="label">Q-BR</span></div>
+            <div class="source-wrapper"><div class="dot-source arc-f-bl" draggable="true" data-shape="arc-f-bl"></div><span class="label">Q-BL</span></div>
+            <div style="width: 1px; height: 20px; background: #444; margin: 0 5px;"></div>
+            <div class="source-wrapper"><div class="dot-source arc-l m-tl" draggable="true" data-shape="arc-l m-tl"></div><span class="label">M-TL</span></div>
+            <div class="source-wrapper"><div class="dot-source arc-l m-tr" draggable="true" data-shape="arc-l m-tr"></div><span class="label">M-TR</span></div>
+            <div class="source-wrapper"><div class="dot-source arc-l m-br" draggable="true" data-shape="arc-l m-br"></div><span class="label">M-BR</span></div>
+            <div class="source-wrapper"><div class="dot-source arc-l m-bl" draggable="true" data-shape="arc-l m-bl"></div><span class="label">M-BL</span></div>
+        </div>
+
+        <div class="baseplate" id="baseplate"></div>
+
+        <div class="controls">
+            <button onclick="clearGrid()">Vider</button>
+            <button class="export-btn" onclick="exportData()">Exporter le code</button>
+        </div>
+    </div>
+
+    <div class="overlay" id="overlay" onclick="closeModal()"></div>
+    <div id="export-modal">
+        <h3>Code Exporté</h3>
+        <p style="font-size: 12px; color: #888;">Ce code JS contient la structure des données pour reconstruire ta grille.</p>
+        <textarea id="export-text" readonly></textarea>
+        <div style="display: flex; gap: 10px;">
+            <button onclick="copyCode()" style="flex: 1;">Copier le code</button>
+            <button onclick="closeModal()" style="flex: 1;">Fermer</button>
+        </div>
+    </div>
+
+    <script>
+        const cols = 20;
+        const rows = 12;
+        const baseplate = document.getElementById('baseplate');
+        const dotsColors = ['#ff5964', '#35a7ff', '#ffe74c', '#26feac', '#f26419', '#b5179e', '#f72585', '#4cc9f0'];
+
+        for (let i = 0; i < cols * rows; i++) {
+            const cell = document.createElement('div');
+            cell.classList.add('cell');
+            cell.dataset.index = i;
+            cell.addEventListener('dragover', (e) => e.preventDefault());
+            cell.addEventListener('drop', (e) => {
+                const shape = e.dataTransfer.getData('shape');
+                if (shape) createDot(cell, shape);
+            });
+            cell.addEventListener('click', () => cell.innerHTML = '');
+            baseplate.appendChild(cell);
+        }
+
+        document.querySelectorAll('.dot-source').forEach(source => {
+            source.addEventListener('dragstart', (e) => {
+                e.dataTransfer.setData('shape', e.target.dataset.shape);
+            });
+        });
+
+        function createDot(parent, shape) {
+            parent.innerHTML = '';
+            const dot = document.createElement('div');
+            const randomColor = dotsColors[Math.floor(Math.random() * dotsColors.length)];
+            dot.className = 'placed-dot ' + shape;
+            dot.dataset.shape = shape;
+            dot.dataset.color = randomColor;
+
+            if (shape.includes('arc-l')) {
+                dot.style.borderColor = randomColor;
+            } else {
+                dot.style.backgroundColor = randomColor;
+            }
+            parent.appendChild(dot);
+        }
+
+        function clearGrid() {
+            document.querySelectorAll('.cell').forEach(c => c.innerHTML = '');
+        }
+
+        function exportData() {
+            const dots = [];
+            document.querySelectorAll('.cell').forEach(cell => {
+                const dotEl = cell.querySelector('.placed-dot');
+                if (dotEl) {
+                    dots.push({
+                        index: parseInt(cell.dataset.index),
+                        x: cell.dataset.index % cols,
+                        y: Math.floor(cell.dataset.index / cols),
+                        shape: dotEl.dataset.shape,
+                        color: dotEl.dataset.color
+                    });
+                }
+            });
+
+            const code = `// Données LEGO DOTS Exportées\nconst legoGridData = ${JSON.stringify(dots, null, 2)};`;
+            document.getElementById('export-text').value = code;
+            document.getElementById('export-modal').style.display = 'block';
+            document.getElementById('overlay').style.display = 'block';
+        }
+
+        function closeModal() {
+            document.getElementById('export-modal').style.display = 'none';
+            document.getElementById('overlay').style.display = 'none';
+        }
+
+        function copyCode() {
+            const text = document.getElementById('export-text');
+            text.select();
+            document.execCommand('copy');
+            alert('Code copié !');
+        }
+    </script>
+</body>
+</html>
